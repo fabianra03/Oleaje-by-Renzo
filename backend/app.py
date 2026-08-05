@@ -290,6 +290,41 @@ def create_app() -> Flask:
         public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{filename}"
         return jsonify({"url": public_url}), 200
 
+    @app.post("/api/upload/debug")
+    def upload_debug() -> tuple[Any, int]:
+        """Diagnóstico temporal — muestra el error exacto de Supabase Storage."""
+        denied = require_admin()
+        if denied:
+            return denied
+
+        info: dict[str, Any] = {
+            "supabase_url_set": bool(SUPABASE_URL),
+            "supabase_key_set": bool(SUPABASE_SECRET_KEY),
+            "supabase_key_prefix": SUPABASE_SECRET_KEY[:20] + "..." if SUPABASE_SECRET_KEY else None,
+            "bucket": SUPABASE_STORAGE_BUCKET,
+        }
+
+        if not SUPABASE_URL or not SUPABASE_SECRET_KEY:
+            return jsonify({"error": "Variables no configuradas", "info": info}), 500
+
+        # Intentar subir un archivo de prueba de 1 byte
+        test_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_STORAGE_BUCKET}/_test_connection.txt"
+        headers = {
+            "Authorization": f"Bearer {SUPABASE_SECRET_KEY}",
+            "Content-Type": "text/plain",
+            "x-upsert": "true",
+        }
+        try:
+            resp = http_requests.post(test_url, headers=headers, data=b"ok", timeout=10)
+            info["supabase_status"] = resp.status_code
+            info["supabase_response"] = resp.text[:500]
+            info["success"] = resp.status_code in (200, 201)
+        except http_requests.RequestException as exc:
+            info["supabase_error"] = str(exc)
+            info["success"] = False
+
+        return jsonify(info), 200
+
     @app.get("/uploads/<filename>")
     def serve_upload_legacy(filename: str) -> tuple[Any, int]:
         """Ruta legacy — en producción las imágenes se sirven desde Supabase Storage."""
