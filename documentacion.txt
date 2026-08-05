@@ -1,0 +1,232 @@
+Proyecto Oleaje - Documentación de funcionamiento y cambios
+
+1. Introducción
+----------------
+Este proyecto es una aplicación web estática creada con React, TypeScript y Vite. Muestra una tienda de productos artesanales con varias vistas: inicio, colección de productos, contacto y un panel de administración ficticio.
+
+2. Cómo ejecutar el proyecto
+-----------------------------
+- Instalar dependencias: npm install
+- Ejecutar en modo desarrollo: npm run dev
+- Construir para producción: npm run build
+- Previsualizar producción: npm run preview
+
+3. Archivos principales y estructura
+------------------------------------
+- package.json: define dependencias y scripts.
+- tsconfig.json, tsconfig.app.json, tsconfig.node.json: configuración de TypeScript para la app y el proyecto Vite.
+- vite.config.ts: configuración de Vite para el desarrollo y la construcción.
+- public/: archivos estáticos públicos.
+- src/: código fuente de la aplicación.
+
+Dentro de src/:
+- main.tsx: punto de entrada que arranca el React root.
+- App.tsx: componente principal que controla la navegación entre vistas y modal de detalle.
+- App.css: estilos principales de la aplicación.
+- index.css: estilos globales y tipografías.
+- components/: componentes reutilizables.
+- data/products.ts: datos de productos y categorías.
+- types/index.ts: tipos TypeScript usados en la app.
+
+4. Flujo principal en `src/main.tsx`
+------------------------------------
+Este archivo importa `App` y renderiza el componente dentro del HTML:
+- Crea el root usando `createRoot(document.getElementById('root')!)`
+- Renderiza `<StrictMode><App /></StrictMode>`
+
+Cambios comunes:
+- Si quieres cambiar la raíz del app o añadir providers globales, hazlo aquí.
+- Para añadir un contexto global o una biblioteca de estado, envuelve `App` con el provider.
+
+5. Vista principal y navegación en `src/App.tsx`
+-------------------------------------------------
+`App.tsx` administra el estado global de la interfaz:
+- `view`: vista activa, con valores `'inicio' | 'productos' | 'contacto' | 'admin'`.
+- `selected`: producto seleccionado para mostrar en modal.
+- `notice`: notificación breve al agregar al carrito.
+- `addToBag`: función que muestra un aviso temporal.
+
+El contenido principal se selecciona con:
+- `'inicio'` → `<Home />`
+- `'productos'` → `<Products />`
+- `'contacto'` → `<Contact />`
+- `'admin'` → `<Admin />`
+
+Además:
+- El encabezado `SiteHeader` siempre se muestra.
+- El pie `SiteFooter` se muestra en todas las vistas excepto en admin.
+- El detalle del producto aparece como modal cuando `selected` no es null.
+
+Cambios comunes en App.tsx:
+- Para añadir una nueva vista, actualiza el tipo `View` en `src/types/index.ts`, crea un nuevo componente y agrégalo al selector de contenido.
+- Para modificar la lógica de notificaciones, edita `addToBag` y el renderizado de `notice`.
+- Para cambiar la forma en que se abre o cierra el modal, ajusta `setSelected` y el `onMouseDown` del backdrop.
+
+6. Componentes
+--------------
+
+6.1 `src/components/Brand.tsx`
+- Solo renderiza la imagen del logo.
+- Props:
+  - `inverse?: boolean` aplica la clase CSS `.inverse`.
+- Cambios:
+  - Para cambiar el logo, actualiza la ruta del import `logo` o reemplaza la imagen en `src/assets`.
+  - Para mostrar texto o un SVG, modifica el retorno del componente.
+
+6.2 `src/components/SiteHeader.tsx`
+- Controla la barra de navegación superior.
+- Mantiene el estado `open` para el menú móvil.
+- Navegación:
+  - `Inicio`, `Colección`, `Contacto`, `Administrar`.
+- Cambios:
+  - Para añadir un enlace, agrega un objeto en `links` o un botón adicional.
+  - Para cambiar el diseño móvil, ajusta la marca y la clase `menu-toggle`.
+  - Para modificar cómo cambia de vista, edita la función `navigate`.
+
+6.3 `src/components/SiteFooter.tsx`
+- Muestra información de contacto, enlaces y redes.
+- Usa `setView` para navegar a las secciones internas.
+- Cambios:
+  - Para editar textos y secciones, reemplaza los contenidos en el JSX.
+  - Para agregar botones nuevos, añade más botones dentro de los bloques de la footer-top.
+
+6.4 `src/components/ProductCard.tsx`
+- Muestra cada producto en cuadrícula.
+- Props:
+  - `product`: datos del producto.
+  - `onDetail`: función para abrir detalle.
+  - `onBuy`: función para agregar al carrito.
+- Cambios:
+  - Para mostrar más información (por ejemplo stock o etiquetas), añade nuevos elementos dentro del JSX.
+  - Para cambiar el botón de compra, edita la clase o el texto del botón.
+
+7. Datos y tipos
+-----------------
+
+7.1 `src/data/products.ts`
+- Define `categories` y `products`.
+- `products` es un arreglo con campos:
+  - `id`, `name`, `category`, `price`, `description`, `image`, `featured?`, `stock`.
+- `formatPrice`: función que formatea precios en COP.
+
+Cambios:
+- Para añadir un producto, agrega un nuevo objeto al arreglo `products`.
+- Para cambiar categorías, modifica `categories` y asegúrate de que los productos usen valores válidos.
+- Para agregar campos nuevos (por ejemplo `material` o `sizes`), extiende el tipo `Product` y actualiza los componentes que lo muestran.
+
+7.2 `src/types/index.ts`
+- Tipos usados en la aplicación:
+  - `Category`: lista de categorías válidas.
+  - `Product`: definición de producto.
+  - `View`: valores permitidos para la navegación.
+
+Cambios:
+- Para añadir otra vista, incluye el nuevo valor en `View`.
+- Para permitir más categorías, agrega valores a `Category`.
+
+8. Vistas específicas definidas en `App.tsx`
+-------------------------------------------
+
+8.1 `Home`
+- Seccion hero con texto de bienvenida.
+- Botones que cambian la vista a `productos`.
+- Muestra productos destacados usando `featured`.
+
+Cambios:
+- Edita textos, imágenes de fondo y botones directamente en el JSX.
+- Para cambiar las piezas destacadas, ajusta `featured` en `src/data/products.ts`.
+
+8.2 `Products`
+- Controla el filtro de categoría con estado local `filter`.
+- Muestra productos según la categoría seleccionada.
+- Renderiza `ProductCard` para cada producto visible.
+
+Cambios:
+- Para cambiar el orden o añadir filtros, modifica la función `shown`.
+- Si quieres ordenar por precio o stock, agrega otra variable de estado y lógica de comparación.
+
+8.3 `Contact`
+- Contiene un formulario de contacto simulado.
+- Cambia el estado `sent` y `subscribed` cuando se envía el formulario.
+
+Cambios:
+- Para conectar el formulario a un backend real, reemplaza `onSubmit` con una llamada a API.
+- Para añadir campos, agrega más `label`/`input` en el formulario.
+
+8.4 `Admin`
+- Simula un panel administrativo con estadísticas y tabla de productos.
+- Usa `showForm` para abrir un modal de creación de producto.
+- Los datos mostrados son estáticos y no se guardan en un backend.
+
+Cambios:
+- Para hacer el panel funcional, integra un estado centralizado o una API.
+- Para modificar las tarjetas de estadísticas, edita el JSX de `stat-grid`.
+- Para cambiar la tabla de productos, ajusta el mapeo `products.slice(0, 4)`.
+
+9. Estilos
+-----------
+
+9.1 `src/App.css`
+- Contiene la mayor parte del diseño de la página.
+- Define estilos del layout, las secciones hero, productos, formularios, modales y botones.
+
+Cambios:
+- Para ajustar la apariencia general, edita clases como `.hero-section`, `.product-card`, `.admin-view`, `.modal-backdrop`.
+- Para cambiar la paleta de colores, modifica las variables CSS en `:root` o los valores en las reglas.
+
+9.2 `src/index.css`
+- Define fuentes y estilos globales.
+- Importa fuentes de Google.
+
+Cambios:
+- Para cambiar la tipografía, reemplaza la URL de Google Fonts y los valores de `font-family`.
+- Para ajustar el comportamiento global de botones, inputs o body, edita estas reglas generales.
+
+10. Cómo hacer cambios en cada componente
+------------------------------------------
+
+A. Cambios de texto y contenido
+- Edita directo en el JSX del componente donde aparece.
+- Para textos de múltiples vistas, usa un archivo de datos o constantes compartidas si quieres mantenerlos fuera del componente.
+
+B. Cambios de producto y categorías
+- Modifica `src/data/products.ts`.
+- Añade, elimina o edita objetos en el arreglo `products`.
+- Actualiza `categories` si agregas nuevos filtros.
+
+C. Cambios de navegación
+- Modifica `src/components/SiteHeader.tsx` para los enlaces principales.
+- Modifica `src/components/SiteFooter.tsx` para los atajos de pie de página.
+- Si agregas vistas, actualiza también `src/types/index.ts` y `App.tsx`.
+
+D. Cambios de estilo
+- Usa clases CSS definidas en `App.css` y `index.css`.
+- Si agregas un nuevo componente o vista, define su clase y agrega reglas en `App.css`.
+- Para estilos responsivos, añade media queries en `App.css`.
+
+E. Cambios funcionales avanzados
+- Para agregar estado compartido o carrito real, considera usar React Context o una librería de estado.
+- Para conectar a un backend, crea funciones `fetch`/`axios` y reemplaza los datos estáticos en `src/data/products.ts`.
+- Para validar formularios, añade lógica de validación dentro de `onSubmit` o usa una librería como `react-hook-form`.
+
+11. Recomendaciones rápidas
+---------------------------
+- Siempre arranca la app con `npm run dev` para ver los cambios en caliente.
+- Usa la extensión de React/TypeScript para navegar tipos y componentes.
+- Si agregas un nuevo componente, importa y exporta desde `src/components` siguiendo el patrón existente.
+- Mantén los datos de `products` y `categories` separados de los componentes para facilitar actualizaciones.
+
+12. Resumen de componentes clave
+--------------------------------
+- `main.tsx`: punto de arranque del app.
+- `App.tsx`: controla vistas, modales y el flujo de página.
+- `Brand.tsx`: logo de la marca.
+- `SiteHeader.tsx`: navegación principal.
+- `SiteFooter.tsx`: pie de página y enlaces secundarios.
+- `ProductCard.tsx`: tarjeta de producto reutilizable.
+- `products.ts`: datos de productos y formateo de precios.
+- `types/index.ts`: definiciones de tipos.
+- `App.css`: estilos de diseño.
+- `index.css`: estilos globales.
+
+Fin de la documentación.
