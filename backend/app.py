@@ -9,13 +9,18 @@ import time
 from datetime import timedelta
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 import bcrypt
 import json
 import uuid
+# pyrefly: ignore [missing-import]
 import psycopg
+import requests as http_requests
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, session, send_from_directory
+from flask import Flask, jsonify, request, session
 from pathlib import Path
+# pyrefly: ignore [missing-import]
 from psycopg import sql
 
 
@@ -111,6 +116,10 @@ DEFAULT_PRODUCT_STOCK = int(os.getenv("DEFAULT_PRODUCT_STOCK", "10"))
 UPLOAD_FOLDER = Path(__file__).parent / "uploads"
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif"}
 
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY", "")
+SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "productos")
+
 
 # ---------------------------------------------------------------------------
 # DB
@@ -198,10 +207,11 @@ def create_app() -> Flask:
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        # CSP permisivo para dev; endurecer en producción según necesidades reales
+        supabase_host = SUPABASE_URL.replace("https://", "").replace("http://", "").split("/")[0] if SUPABASE_URL else ""
+        img_src = f"'self' data: https://images.unsplash.com blob: https://{supabase_host}" if supabase_host else "'self' data: https://images.unsplash.com blob:"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "img-src 'self' data: https://images.unsplash.com blob:; "
+            f"default-src 'self'; "
+            f"img-src {img_src}; "
             "connect-src 'self'; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
@@ -247,17 +257,43 @@ def create_app() -> Flask:
         if ext not in ALLOWED_EXTENSIONS:
             return jsonify({"message": f"Formato no permitido. Usa: {', '.join(ALLOWED_EXTENSIONS)}."}), 400
 
-        filename = f"{uuid.uuid4().hex}.{ext}"
-        save_path = UPLOAD_FOLDER / filename
-        file.save(str(save_path))
+        if not SUPABASE_URL or not SUPABASE_SECRET_KEY:
+            return jsonify({"message": "Supabase no está configurado en el servidor."}), 500
 
-        return jsonify({"url": f"/uploads/{filename}"}), 200
+        filename = f"{uuid.uuid4().hex}.{ext}"
+        content_type_map = {
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "png": "image/png",
+            "webp": "image/webp",
+            "gif": "image/gif",
+        }
+        content_type = content_type_map.get(ext, "application/octet-stream")
+
+        storage_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_STORAGE_BUCKET}/{filename}"
+        headers = {
+            "Authorization": f"Bearer {SUPABASE_SECRET_KEY}",
+            "Content-Type": content_type,
+            "x-upsert": "true",
+        }
+
+        try:
+            file_bytes = file.read()
+            resp = http_requests.post(storage_url, headers=headers, data=file_bytes, timeout=30)
+            if resp.status_code not in (200, 201):
+                app.logger.error("Supabase Storage error %s: %s", resp.status_code, resp.text)
+                return jsonify({"message": "No fue posible subir la imagen."}), 502
+        except http_requests.RequestException:
+            app.logger.exception("Error al conectar con Supabase Storage")
+            return jsonify({"message": "No fue posible subir la imagen."}), 502
+
+        public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{filename}"
+        return jsonify({"url": public_url}), 200
 
     @app.get("/uploads/<filename>")
-    def serve_upload(filename: str) -> Any:
-        resp = send_from_directory(str(UPLOAD_FOLDER), filename)
-        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        return resp
+    def serve_upload_legacy(filename: str) -> tuple[Any, int]:
+        """Ruta legacy — en producción las imágenes se sirven desde Supabase Storage."""
+        return jsonify({"message": "Las imágenes ahora se sirven desde Supabase Storage."}), 410
 
     @app.get("/api/auth/me")
     def current_user() -> tuple[Any, int]:
