@@ -11,6 +11,33 @@ import oleajeLogo from "./assets/oleaje-logo.png";
 type CartItem = Product & { quantity: number };
 type AdminUser = { id: string; username: string; name: string };
 
+type AppConfig = {
+  whatsapp: string;
+  email: string;
+  brand: string;
+  city: string;
+};
+
+const DEFAULT_CONFIG: AppConfig = {
+  whatsapp: "",
+  email: "",
+  brand: "Oleaje",
+  city: "Barranquilla, Colombia",
+};
+
+function useAppConfig(): AppConfig {
+  const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: AppConfig | null) => {
+        if (data) setConfig(data);
+      })
+      .catch(() => { /* usa defaults */ });
+  }, []);
+  return config;
+}
+
 function AdminLogin({
   onSuccess,
   onBack,
@@ -214,12 +241,14 @@ function CartSummary({
   increaseQuantity,
   decreaseQuantity,
   setView,
+  config,
 }: {
   cartItems: CartItem[];
   removeFromCart: (productId: number) => void;
   increaseQuantity: (productId: number) => void;
   decreaseQuantity: (productId: number) => void;
   setView: (view: View) => void;
+  config: AppConfig;
 }) {
   const total = cartItems.reduce(
     (sum, item) => sum + item.price * item.quantity,
@@ -234,18 +263,10 @@ function CartSummary({
       )
       .join("\n");
 
-    const message = `Hola, Olejae!
-
-Ya escogi mis productos, ahora quiero proceder con la compra!
-
-Productos;
-
-${productLines}
-
-Valor total: ${formatPrice(total)}`;
+    const message = `Hola, Oleaje!\n\nYa escogí mis productos, ahora quiero proceder con la compra!\n\nProductos:\n\n${productLines}\n\nValor total: ${formatPrice(total)}`;
 
     const encodedMessage = encodeURIComponent(message);
-    const whatsappUrl = `https://wa.me/573014474936?text=${encodedMessage}`;
+    const whatsappUrl = `https://wa.me/${config.whatsapp}?text=${encodedMessage}`;
     window.open(whatsappUrl, "_blank", "noopener,noreferrer");
   };
 
@@ -342,7 +363,14 @@ Valor total: ${formatPrice(total)}`;
   );
 }
 
-function Contact() {
+function Contact({ config }: { config: AppConfig }) {
+  const whatsappHref = config.whatsapp ? `https://wa.me/${config.whatsapp}` : "#";
+  const emailHref = config.email ? `mailto:${config.email}` : "#";
+  // Formatea número para mostrar: 573014474936 → +57 301 447 4936
+  const displayPhone = config.whatsapp
+    ? `+${config.whatsapp.replace(/(\d{2})(\d{3})(\d{3})(\d{4})/, "$1 $2 $3 $4")}`
+    : "";
+
   return (
     <main className="page contact-page">
       <div className="contact-hero">
@@ -365,14 +393,18 @@ function Contact() {
             <em>bonito juntos.</em>
           </h2>
           <div className="detail-list">
-            <div>
-              <span>Escríbenos</span>
-              <a href="mailto:oleajecolombia@gmail.com">oleajecolombia@gmail.com</a>
-            </div>
-            <div>
-              <span>Llámanos o WhatsApp</span>
-              <a href="https://wa.me/573014474936" target="_blank" rel="noopener noreferrer">+57 301 447 4936</a>
-            </div>
+            {config.email && (
+              <div>
+                <span>Escríbenos</span>
+                <a href={emailHref}>{config.email}</a>
+              </div>
+            )}
+            {config.whatsapp && (
+              <div>
+                <span>Llámanos o WhatsApp</span>
+                <a href={whatsappHref} target="_blank" rel="noopener noreferrer">{displayPhone}</a>
+              </div>
+            )}
           </div>
           <div className="social-line">
             <a href="https://www.instagram.com/oleaje_col?igsh=Nnk1cHk3amo1ZTZ1&utm_source=qr" target="_blank" rel="noopener noreferrer">Instagram</a>
@@ -823,6 +855,7 @@ function DetailImageSlider({ product }: { product: Product }) {
 }
 
 function App() {
+  const config = useAppConfig();
   const [view, setView] = useState<View>("inicio");
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -942,9 +975,10 @@ function App() {
         increaseQuantity={increaseQuantity}
         decreaseQuantity={decreaseQuantity}
         setView={setView}
+        config={config}
       />
     ) : view === "contacto" ? (
-      <Contact />
+      <Contact config={config} />
     ) : !authChecked ? (
       <main className="admin-login-page"><p>Comprobando sesión…</p></main>
     ) : adminUser ? (
@@ -977,7 +1011,7 @@ function App() {
         <SiteHeader view={view} setView={setView} />
       )}
       {content}
-      {view !== "admin" && <SiteFooter setView={setView} />}
+      {view !== "admin" && <SiteFooter setView={setView} config={config} />}
       {view !== "admin" && view !== "carrito" && (
         <button
           className="floating-cart"

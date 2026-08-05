@@ -1625,19 +1625,61 @@ td img {
 
 .product-form {
   position: relative;
-  width: min(450px, 100%);
-  padding: 42px;
+  width: min(480px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 40px 36px 36px;
   background: #fbfaf5;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.product-form > * {
+  box-sizing: border-box;
+}
+
+.product-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.product-form input[type="text"],
+.product-form input[type="number"],
+.product-form input[type="file"] {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .product-form .primary-button {
+  width: 100%;
   margin-top: 8px;
+  box-sizing: border-box;
 }
 
 .form-split {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: 15px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-split label {
+  min-width: 0;
+}
+
+.form-split input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.form-checkbox-container {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 @keyframes slide-up {
@@ -2074,7 +2116,8 @@ td img {
   .product-form {
     width: 100%;
     min-height: 100vh;
-    padding: 28px 22px 40px;
+    max-height: none;
+    padding: 28px 20px 40px;
     border-radius: 0;
   }
 
@@ -2084,7 +2127,7 @@ td img {
 
   .form-split {
     grid-template-columns: 1fr;
-    gap: 0;
+    gap: 8px;
   }
 
   .close-modal {

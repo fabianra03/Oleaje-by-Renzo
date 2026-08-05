@@ -1,11 +1,28 @@
 import { Brand } from "./Brand";
 import type { View } from "../types";
 
-export function SiteFooter({ setView }: { setView: (view: View) => void }) {
+type AppConfig = {
+  whatsapp: string;
+  email: string;
+  brand: string;
+  city: string;
+};
+
+export function SiteFooter({
+  setView,
+  config,
+}: {
+  setView: (view: View) => void;
+  config: AppConfig;
+}) {
   const go = (view: View) => {
     setView(view);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  const whatsappHref = config.whatsapp ? `https://wa.me/${config.whatsapp}` : "#";
+  const emailHref = config.email ? `mailto:${config.email}` : "#";
+
   return (
     <footer className="site-footer">
       <div className="footer-top">
@@ -25,9 +42,13 @@ export function SiteFooter({ setView }: { setView: (view: View) => void }) {
         </div>
         <div>
           <h4>Estamos cerca</h4>
-          <p>Barranquilla, Colombia</p>
-          <p><a href="https://wa.me/573014474936" target="_blank" rel="noopener noreferrer">+57 301 447 4936</a></p>
-          <p><a href="mailto:oleajecolombia@gmail.com">oleajecolombia@gmail.com</a></p>
+          <p>{config.city || "Barranquilla, Colombia"}</p>
+          {config.whatsapp && (
+            <p><a href={whatsappHref} target="_blank" rel="noopener noreferrer">{whatsappHref.replace("https://wa.me/", "+")}</a></p>
+          )}
+          {config.email && (
+            <p><a href={emailHref}>{config.email}</a></p>
+          )}
         </div>
         <div>
           <h4>Despacio es mejor</h4>
@@ -41,7 +62,7 @@ export function SiteFooter({ setView }: { setView: (view: View) => void }) {
         </div>
       </div>
       <div className="footer-bottom">
-        <span>© {new Date().getFullYear()} Oleaje. Hecho en Colombia.</span>
+        <span>© {new Date().getFullYear()} {config.brand || "Oleaje"}. Hecho en Colombia.</span>
         <span>Privacidad &nbsp; · &nbsp; Términos</span>
       </div>
     </footer>

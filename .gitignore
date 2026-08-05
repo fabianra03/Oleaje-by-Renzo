@@ -13,6 +13,9 @@ dist-ssr
 *.local
 backend/.env
 backend/.venv/
+backend/__pycache__/
+backend/*.pyc
+backend/uploads/
 
 # Editor directories and files
 .vscode/*

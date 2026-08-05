@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import re
+import threading
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -21,6 +23,40 @@ load_dotenv()
 
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# ---------------------------------------------------------------------------
+# Rate limiting — en memoria, por IP. Reinicia al reiniciar el proceso.
+# Para producción con múltiples workers usa Redis o similar.
+# ---------------------------------------------------------------------------
+_login_attempts: dict[str, list[float]] = {}
+_attempts_lock = threading.Lock()
+
+LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
+LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "300"))  # 5 minutos
+
+
+def _check_rate_limit(ip: str) -> bool:
+    """Devuelve True si la IP ha superado el límite de intentos."""
+    now = time.monotonic()
+    cutoff = now - LOGIN_WINDOW_SECONDS
+    with _attempts_lock:
+        attempts = [t for t in _login_attempts.get(ip, []) if t > cutoff]
+        if len(attempts) >= LOGIN_MAX_ATTEMPTS:
+            _login_attempts[ip] = attempts
+            return True
+        attempts.append(now)
+        _login_attempts[ip] = attempts
+        return False
+
+
+def _clear_rate_limit(ip: str) -> None:
+    """Elimina el historial de intentos tras un login exitoso."""
+    with _attempts_lock:
+        _login_attempts.pop(ip, None)
+
+
+# ---------------------------------------------------------------------------
+# Helpers de configuración
+# ---------------------------------------------------------------------------
 
 def setting(name: str, default: str | None = None) -> str:
     value = os.getenv(name, default)
@@ -54,6 +90,10 @@ def verify_password(provided_password: str, stored_password: str) -> bool:
     raise RuntimeError("AUTH_PASSWORD_MODE debe ser bcrypt o plain.")
 
 
+# ---------------------------------------------------------------------------
+# Constantes — sobreescribibles desde .env
+# ---------------------------------------------------------------------------
+
 CATEGORY_IMAGES = {
     "Bolsos": "https://images.unsplash.com/photo-1594223274512-ad4803739b7c?auto=format&fit=crop&w=900&q=85",
     "Amigurumis": "https://images.unsplash.com/photo-1559454403-b8fb88521f11?auto=format&fit=crop&w=900&q=85",
@@ -63,22 +103,36 @@ CATEGORY_IMAGES = {
 }
 
 DEFAULT_PRODUCT_IMAGE = CATEGORY_IMAGES["Hogar"]
-DEFAULT_PRODUCT_DESCRIPTION = "Pieza artesanal tejida a mano en Oleaje."
-DEFAULT_PRODUCT_STOCK = 10
+DEFAULT_PRODUCT_DESCRIPTION = os.getenv(
+    "DEFAULT_PRODUCT_DESCRIPTION", "Pieza artesanal tejida a mano en Oleaje."
+)
+DEFAULT_PRODUCT_STOCK = int(os.getenv("DEFAULT_PRODUCT_STOCK", "10"))
 
 UPLOAD_FOLDER = Path(__file__).parent / "uploads"
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif"}
 
 
+# ---------------------------------------------------------------------------
+# DB
+# ---------------------------------------------------------------------------
+
 def db_connect():
     return psycopg.connect(setting("DATABASE_URL"), connect_timeout=10)
 
+
+# ---------------------------------------------------------------------------
+# Guards
+# ---------------------------------------------------------------------------
 
 def require_admin() -> tuple[Any, int] | None:
     if not session.get("admin_user"):
         return jsonify({"message": "No autorizado."}), 401
     return None
 
+
+# ---------------------------------------------------------------------------
+# Serialización
+# ---------------------------------------------------------------------------
 
 def serialize_product(row: tuple[Any, ...]) -> dict[str, Any]:
     if len(row) >= 7:
@@ -100,7 +154,7 @@ def serialize_product(row: tuple[Any, ...]) -> dict[str, Any]:
                 images_list = [image_str]
         else:
             images_list = [image_str]
-            
+
     primary_image = images_list[0] if images_list else CATEGORY_IMAGES.get(category_name, DEFAULT_PRODUCT_IMAGE)
     if not images_list:
         images_list = [primary_image]
@@ -118,6 +172,10 @@ def serialize_product(row: tuple[Any, ...]) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# App factory
+# ---------------------------------------------------------------------------
+
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.update(
@@ -125,37 +183,74 @@ def create_app() -> Flask:
         PERMANENT_SESSION_LIFETIME=timedelta(hours=int(os.getenv("SESSION_HOURS", "8"))),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
-        SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "false").lower()
-        == "true",
+        SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true",
     )
-    
+
     UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+
+    # -----------------------------------------------------------------------
+    # Headers de seguridad HTTP — aplicados a todas las respuestas
+    # -----------------------------------------------------------------------
+
+    @app.after_request
+    def add_security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # CSP permisivo para dev; endurecer en producción según necesidades reales
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "img-src 'self' data: https://images.unsplash.com blob:; "
+            "connect-src 'self'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "script-src 'self'; "
+            "frame-ancestors 'none';"
+        )
+        return response
+
+    # -----------------------------------------------------------------------
+    # Endpoints
+    # -----------------------------------------------------------------------
 
     @app.get("/api/health")
     def health() -> tuple[dict[str, str], int]:
         return {"status": "ok"}, 200
+
+    @app.get("/api/config")
+    def public_config() -> tuple[Any, int]:
+        """Expone configuración pública (sin secretos) para el frontend."""
+        resp = jsonify({
+            "whatsapp": os.getenv("WHATSAPP_NUMBER", ""),
+            "email": os.getenv("CONTACT_EMAIL", ""),
+            "brand": os.getenv("BRAND_NAME", "Oleaje"),
+            "city": os.getenv("BRAND_CITY", "Barranquilla, Colombia"),
+        })
+        resp.headers["Cache-Control"] = "public, max-age=300"
+        return resp, 200
 
     @app.post("/api/upload")
     def upload_file() -> tuple[Any, int]:
         denied = require_admin()
         if denied:
             return denied
-        
+
         if "file" not in request.files:
             return jsonify({"message": "No se recibió ningún archivo."}), 400
-        
+
         file = request.files["file"]
         if not file or not file.filename:
             return jsonify({"message": "Archivo inválido."}), 400
-        
+
         ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
         if ext not in ALLOWED_EXTENSIONS:
             return jsonify({"message": f"Formato no permitido. Usa: {', '.join(ALLOWED_EXTENSIONS)}."}), 400
-        
+
         filename = f"{uuid.uuid4().hex}.{ext}"
         save_path = UPLOAD_FOLDER / filename
         file.save(str(save_path))
-        
+
         return jsonify({"url": f"/uploads/{filename}"}), 200
 
     @app.get("/uploads/<filename>")
@@ -173,6 +268,11 @@ def create_app() -> Flask:
 
     @app.post("/api/auth/login")
     def login() -> tuple[Any, int]:
+        client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+
+        if _check_rate_limit(client_ip):
+            return jsonify({"message": "Demasiados intentos. Intenta de nuevo en unos minutos."}), 429
+
         payload = request.get_json(silent=True) or {}
         username = str(payload.get("username") or payload.get("email") or "").strip()
         password = str(payload.get("password", ""))
@@ -200,6 +300,7 @@ def create_app() -> Flask:
         if not row or not verify_password(password, str(row[1])):
             return jsonify({"message": "Usuario o contraseña incorrectos."}), 401
 
+        _clear_rate_limit(client_ip)
         session.clear()
         session.permanent = True
         session["admin_user"] = {
@@ -211,12 +312,12 @@ def create_app() -> Flask:
 
     @app.post("/api/auth/logout")
     def logout() -> tuple[dict[str, bool], int]:
-      session.clear()
-      return {"authenticated": False}, 200
+        session.clear()
+        return {"authenticated": False}, 200
 
     @app.post("/api/admin/close-connection")
     def close_connection() -> tuple[dict[str, str], int]:
-      return {"status": "ok"}, 200
+        return {"status": "ok"}, 200
 
     @app.get("/api/products")
     def list_products() -> tuple[Any, int]:
@@ -257,11 +358,11 @@ def create_app() -> Flask:
         category = str(payload.get("category", "")).strip()
         price_raw = payload.get("price")
         stock_raw = payload.get("stock", DEFAULT_PRODUCT_STOCK)
-        
+
         images_payload = payload.get("images", [])
         if not isinstance(images_payload, list):
             images_payload = [str(images_payload)] if images_payload else []
-            
+
         image_val = json.dumps(images_payload) if images_payload else None
         en_descuento = bool(payload.get("en_descuento", False))
 
@@ -345,13 +446,13 @@ def create_app() -> Flask:
             if not name:
                 return jsonify({"message": "El nombre es obligatorio."}), 400
             update_fields["name"] = name
-            
+
         if "category" in payload:
             category = str(payload.get("category") or "").strip()
             if not category:
                 return jsonify({"message": "La categoría es obligatoria."}), 400
             update_fields["category"] = category
-            
+
         if "price" in payload:
             try:
                 price = float(payload.get("price"))
@@ -360,7 +461,7 @@ def create_app() -> Flask:
             if price <= 0:
                 return jsonify({"message": "El precio debe ser mayor que cero."}), 400
             update_fields["valor"] = price
-            
+
         if "images" in payload:
             images_payload = payload.get("images", [])
             if not isinstance(images_payload, list):
@@ -368,7 +469,7 @@ def create_app() -> Flask:
             update_fields["image"] = json.dumps(images_payload) if images_payload else None
         elif "image" in payload:
             update_fields["image"] = str(payload.get("image") or "").strip() or None
-            
+
         if "en_descuento" in payload:
             update_fields["en_descuento"] = bool(payload.get("en_descuento", False))
 
@@ -437,16 +538,16 @@ def create_app() -> Flask:
         insert_query = sql.SQL("INSERT INTO {table} (email) VALUES (%s)").format(
             table=sql.Identifier("suscriptores")
         )
-        
+
         try:
             with db_connect() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute(select_query, (email,))
                     row = cursor.fetchone()
-                    
+
                     if row:
                         return jsonify({"message": "Este correo ya está registrado."}), 409
-                        
+
                     cursor.execute(insert_query, (email,))
                 conn.commit()
         except psycopg.Error:
