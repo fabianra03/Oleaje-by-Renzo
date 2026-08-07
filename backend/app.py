@@ -144,12 +144,23 @@ def require_admin() -> tuple[Any, int] | None:
 # ---------------------------------------------------------------------------
 
 def serialize_product(row: tuple[Any, ...]) -> dict[str, Any]:
-    if len(row) >= 7:
+    if len(row) >= 9:
+        codigo, name, valor, category, image, en_descuento, stock_val, tallas_raw, descuento_fin_raw = row[:9]
+        stock = int(stock_val) if stock_val is not None else DEFAULT_PRODUCT_STOCK
+    elif len(row) >= 8:
+        codigo, name, valor, category, image, en_descuento, stock_val, tallas_raw = row[:8]
+        stock = int(stock_val) if stock_val is not None else DEFAULT_PRODUCT_STOCK
+        descuento_fin_raw = None
+    elif len(row) >= 7:
         codigo, name, valor, category, image, en_descuento, stock_val = row[:7]
         stock = int(stock_val) if stock_val is not None else DEFAULT_PRODUCT_STOCK
+        tallas_raw = None
+        descuento_fin_raw = None
     else:
         codigo, name, valor, category, image, en_descuento = row[:6]
         stock = DEFAULT_PRODUCT_STOCK
+        tallas_raw = None
+        descuento_fin_raw = None
 
     category_name = str(category or "Hogar")
     price = float(valor or 0)
@@ -168,6 +179,28 @@ def serialize_product(row: tuple[Any, ...]) -> dict[str, Any]:
     if not images_list:
         images_list = [primary_image]
 
+    # Parse sizes (tallas) JSON
+    sizes = None
+    if tallas_raw:
+        try:
+            sizes = json.loads(str(tallas_raw))
+            if not isinstance(sizes, dict):
+                sizes = None
+        except Exception:
+            sizes = None
+
+    # Parse descuento_fin
+    descuento_fin = None
+    if descuento_fin_raw:
+        try:
+            # Handle datetime objects
+            if hasattr(descuento_fin_raw, "isoformat"):
+                descuento_fin = descuento_fin_raw.isoformat()
+            else:
+                descuento_fin = str(descuento_fin_raw)
+        except Exception:
+            descuento_fin = None
+
     return {
         "id": int(codigo),
         "name": str(name),
@@ -178,6 +211,8 @@ def serialize_product(row: tuple[Any, ...]) -> dict[str, Any]:
         "images": images_list,
         "stock": stock,
         "en_descuento": bool(en_descuento),
+        "descuento_fin": descuento_fin,
+        "sizes": sizes,
     }
 
 
@@ -393,7 +428,7 @@ def create_app() -> Flask:
     @app.get("/api/products")
     def list_products() -> tuple[Any, int]:
         query = sql.SQL(
-            "SELECT {codigo}, {name}, {valor}, {category}, {image}, {en_descuento}, {stock} "
+            "SELECT {codigo}, {name}, {valor}, {category}, {image}, {en_descuento}, {stock}, {tallas}, {descuento_fin} "
             "FROM {table} ORDER BY {codigo} DESC"
         ).format(
             codigo=sql.Identifier("codigo"),
@@ -403,6 +438,8 @@ def create_app() -> Flask:
             image=sql.Identifier("image"),
             en_descuento=sql.Identifier("en_descuento"),
             stock=sql.Identifier("stock"),
+            tallas=sql.Identifier("tallas"),
+            descuento_fin=sql.Identifier("descuento_fin"),
             table=sql.Identifier("productos"),
         )
         try:
@@ -436,6 +473,27 @@ def create_app() -> Flask:
 
         image_val = json.dumps(images_payload) if images_payload else None
         en_descuento = bool(payload.get("en_descuento", False))
+        
+        descuento_fin_raw = payload.get("descuento_fin")
+        descuento_fin_val = None
+        if en_descuento and descuento_fin_raw:
+            descuento_fin_val = str(descuento_fin_raw).strip() or None
+
+        # Parse sizes (tallas)
+        sizes_payload = payload.get("sizes")
+        tallas_val = None
+        if sizes_payload and isinstance(sizes_payload, dict):
+            # Validate that all values are positive numbers
+            valid_sizes = {}
+            for size_key, size_price in sizes_payload.items():
+                try:
+                    p = float(size_price)
+                    if p > 0:
+                        valid_sizes[str(size_key)] = p
+                except (TypeError, ValueError):
+                    pass
+            if valid_sizes:
+                tallas_val = json.dumps(valid_sizes)
 
         if not name:
             return jsonify({"message": "El nombre es obligatorio."}), 400
@@ -456,9 +514,9 @@ def create_app() -> Flask:
             stock = DEFAULT_PRODUCT_STOCK
 
         insert = sql.SQL(
-            "INSERT INTO {table} ({name}, {valor}, {category}, {image}, {en_descuento}, {stock}) "
-            "VALUES (%s, %s, %s, %s, %s, %s) "
-            "RETURNING {codigo}, {name}, {valor}, {category}, {image}, {en_descuento}, {stock}"
+            "INSERT INTO {table} ({name}, {valor}, {category}, {image}, {en_descuento}, {stock}, {tallas}, {descuento_fin}) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+            "RETURNING {codigo}, {name}, {valor}, {category}, {image}, {en_descuento}, {stock}, {tallas}, {descuento_fin}"
         ).format(
             table=sql.Identifier("productos"),
             codigo=sql.Identifier("codigo"),
@@ -468,11 +526,13 @@ def create_app() -> Flask:
             image=sql.Identifier("image"),
             en_descuento=sql.Identifier("en_descuento"),
             stock=sql.Identifier("stock"),
+            tallas=sql.Identifier("tallas"),
+            descuento_fin=sql.Identifier("descuento_fin"),
         )
         try:
             with db_connect() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(insert, (name, price, category, image_val, en_descuento, stock))
+                    cursor.execute(insert, (name, price, category, image_val, en_descuento, stock, tallas_val, descuento_fin_val))
                     row = cursor.fetchone()
                 conn.commit()
         except psycopg.Error:
@@ -542,7 +602,15 @@ def create_app() -> Flask:
             update_fields["image"] = str(payload.get("image") or "").strip() or None
 
         if "en_descuento" in payload:
-            update_fields["en_descuento"] = bool(payload.get("en_descuento", False))
+            en_desc = bool(payload.get("en_descuento", False))
+            update_fields["en_descuento"] = en_desc
+            
+            # Solo actualizar descuento_fin si en_descuento está en el payload
+            if en_desc and "descuento_fin" in payload:
+                df = str(payload.get("descuento_fin") or "").strip()
+                update_fields["descuento_fin"] = df if df else None
+            elif not en_desc:
+                update_fields["descuento_fin"] = None
 
         if "stock" in payload:
             try:
@@ -551,6 +619,21 @@ def create_app() -> Flask:
                     update_fields["stock"] = stock_val
             except (TypeError, ValueError):
                 return jsonify({"message": "El stock debe ser un número entero válido."}), 400
+
+        if "sizes" in payload:
+            sizes_payload = payload.get("sizes")
+            if sizes_payload and isinstance(sizes_payload, dict):
+                valid_sizes = {}
+                for size_key, size_price in sizes_payload.items():
+                    try:
+                        p = float(size_price)
+                        if p > 0:
+                            valid_sizes[str(size_key)] = p
+                    except (TypeError, ValueError):
+                        pass
+                update_fields["tallas"] = json.dumps(valid_sizes) if valid_sizes else None
+            else:
+                update_fields["tallas"] = None
 
         if not update_fields:
             return jsonify({"message": "No hay campos para actualizar."}), 400
@@ -564,7 +647,7 @@ def create_app() -> Flask:
 
         query = sql.SQL(
             "UPDATE {table} SET {clauses} WHERE {codigo} = %s "
-            "RETURNING {codigo}, {name_col}, {valor_col}, {category_col}, {image_col}, {en_descuento_col}, {stock_col}"
+            "RETURNING {codigo}, {name_col}, {valor_col}, {category_col}, {image_col}, {en_descuento_col}, {stock_col}, {tallas_col}, {descuento_fin_col}"
         ).format(
             table=sql.Identifier("productos"),
             clauses=sql.SQL(", ").join(set_clauses),
@@ -575,6 +658,8 @@ def create_app() -> Flask:
             image_col=sql.Identifier("image"),
             en_descuento_col=sql.Identifier("en_descuento"),
             stock_col=sql.Identifier("stock"),
+            tallas_col=sql.Identifier("tallas"),
+            descuento_fin_col=sql.Identifier("descuento_fin"),
         )
         try:
             with db_connect() as conn:

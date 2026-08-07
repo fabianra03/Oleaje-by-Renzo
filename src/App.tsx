@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import "./App.css";
-import { formatPrice } from "./data/products";
+import { formatPrice, isDiscountValid } from "./data/products";
 import type { Product, View } from "./types";
 import { Brand } from "./components/Brand";
 import { ProductCard } from "./components/ProductCard";
@@ -8,7 +8,8 @@ import { SiteHeader } from "./components/SiteHeader";
 import { SiteFooter } from "./components/SiteFooter";
 import oleajeLogo from "./assets/oleaje-logo.png";
 
-type CartItem = Product & { quantity: number };
+type CartItem = Product & { quantity: number; selectedSize?: string };
+const SIZE_OPTIONS = ["XS", "S", "M", "L", "XL"] as const;
 type AdminUser = { id: string; username: string; name: string };
 
 type AppConfig = {
@@ -250,16 +251,25 @@ function CartSummary({
   setView: (view: View) => void;
   config: AppConfig;
 }) {
+  const getItemPrice = (item: CartItem) => {
+    if (item.selectedSize && item.sizes && item.sizes[item.selectedSize]) {
+      return item.sizes[item.selectedSize];
+    }
+    return item.price;
+  };
   const total = cartItems.reduce(
-    (sum, item) => sum + item.price * item.quantity,
+    (sum, item) => sum + getItemPrice(item) * item.quantity,
     0,
   );
 
   const handleCheckout = () => {
     const productLines = cartItems
       .map(
-        (item) =>
-          `${item.name}${item.quantity > 1 ? ` (x${item.quantity})` : ""}     ${formatPrice(item.price * item.quantity)}`
+        (item) => {
+          const unitPrice = getItemPrice(item);
+          const sizeLabel = item.selectedSize ? ` (Talla: ${item.selectedSize})` : "";
+          return `${item.name}${sizeLabel}${item.quantity > 1 ? ` (x${item.quantity})` : ""}     ${formatPrice(unitPrice * item.quantity)}`;
+        }
       )
       .join("\n");
 
@@ -305,10 +315,10 @@ function CartSummary({
                   <img src={item.image} alt={item.name} />
                   <div>
                     <strong>{item.name}</strong>
-                    <p>{item.category}</p>
+                    <p>{item.category}{item.selectedSize ? ` · Talla ${item.selectedSize}` : ""}</p>
                   </div>
                 </div>
-                <span>{formatPrice(item.price)}</span>
+                <span>{formatPrice(getItemPrice(item))}</span>
                 <div className="cart-quantity-controls">
                   <button
                     type="button"
@@ -328,7 +338,7 @@ function CartSummary({
                     +
                   </button>
                 </div>
-                <span>{formatPrice(item.price * item.quantity)}</span>
+                <span>{formatPrice(getItemPrice(item) * item.quantity)}</span>
                 <button
                   type="button"
                   className="cart-remove-button"
@@ -438,8 +448,17 @@ function Admin({
   const [images, setImages] = useState<string[]>([]);
   const [stock, setStock] = useState("10");
   const [enDescuento, setEnDescuento] = useState(false);
+  const [descuentoFin, setDescuentoFin] = useState("");
+  const [hasSizes, setHasSizes] = useState(false);
+  const [activeSizes, setActiveSizes] = useState<Record<string, boolean>>({
+    XS: false, S: false, M: false, L: false, XL: false,
+  });
+  const [sizePrices, setSizePrices] = useState<Record<string, string>>({
+    XS: "", S: "", M: "", L: "", XL: "",
+  });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const resetForm = () => {
@@ -449,6 +468,10 @@ function Admin({
     setStock("10");
     setImages([]);
     setEnDescuento(false);
+    setDescuentoFin("");
+    setHasSizes(false);
+    setActiveSizes({ XS: false, S: false, M: false, L: false, XL: false });
+    setSizePrices({ XS: "", S: "", M: "", L: "", XL: "" });
     setError("");
     setEditingProduct(null);
   };
@@ -461,6 +484,23 @@ function Admin({
     setStock(String(product.stock ?? 10));
     setImages(product.images && product.images.length > 0 ? product.images : [product.image]);
     setEnDescuento(product.en_descuento);
+    setDescuentoFin(product.descuento_fin ? product.descuento_fin.split("T")[0] : "");
+    // Load sizes
+    if (product.sizes && Object.keys(product.sizes).length > 0) {
+      setHasSizes(true);
+      const newActive: Record<string, boolean> = { XS: false, S: false, M: false, L: false, XL: false };
+      const newPrices: Record<string, string> = { XS: "", S: "", M: "", L: "", XL: "" };
+      for (const [sz, pr] of Object.entries(product.sizes)) {
+        newActive[sz] = true;
+        newPrices[sz] = String(pr);
+      }
+      setActiveSizes(newActive);
+      setSizePrices(newPrices);
+    } else {
+      setHasSizes(false);
+      setActiveSizes({ XS: false, S: false, M: false, L: false, XL: false });
+      setSizePrices({ XS: "", S: "", M: "", L: "", XL: "" });
+    }
     setError("");
     setShowForm(true);
   };
@@ -524,6 +564,14 @@ function Admin({
           stock: Number(stock),
           images,
           en_descuento: enDescuento,
+          descuento_fin: enDescuento && descuentoFin ? `${descuentoFin}T23:59:59` : null,
+          sizes: hasSizes
+            ? Object.fromEntries(
+                SIZE_OPTIONS
+                  .filter((sz) => activeSizes[sz] && sizePrices[sz])
+                  .map((sz) => [sz, Number(sizePrices[sz])])
+              )
+            : null,
         }),
       });
       const data = (await response.json()) as {
@@ -700,6 +748,7 @@ function Admin({
                 onChange={async (event) => {
                   const files = Array.from(event.target.files || []);
                   if (files.length > 0) {
+                    setUploading(true);
                     const uploadedUrls: string[] = [];
                     for (const file of files) {
                       const formData = new FormData();
@@ -713,17 +762,24 @@ function Admin({
                         if (res.ok) {
                           const data = (await res.json()) as { url?: string };
                           if (data.url) uploadedUrls.push(data.url);
+                        } else {
+                          const data = (await res.json()) as { message?: string };
+                          alert(data.message || "Error al subir imagen.");
                         }
                       } catch {
-                        console.error("Error al subir imagen");
+                        alert("Error de red al intentar subir la imagen.");
                       }
                     }
                     if (uploadedUrls.length > 0) {
                       setImages((prev) => [...prev, ...uploadedUrls]);
                     }
+                    setUploading(false);
+                    // Reset input
+                    event.target.value = "";
                   }
                 }}
               />
+              {uploading && <p className="upload-status">Subiendo imágenes, por favor espera...</p>}
               {images.length > 0 && (
                 <div className="admin-image-previews">
                   {images.map((imgUrl, idx) => (
@@ -784,9 +840,66 @@ function Admin({
                 Marcar como producto en descuento
               </label>
             </div>
-            {error && <p className="login-error" role="alert">{error}</p>}
-            <button className="primary-button" type="submit" disabled={saving}>
-              {saving ? "Guardando…" : (editingProduct ? "Guardar cambios →" : "Guardar producto →")}
+            {enDescuento && (
+              <label>
+                Fecha de fin del descuento (opcional)
+                <input
+                  type="date"
+                  value={descuentoFin}
+                  onChange={(event) => setDescuentoFin(event.target.value)}
+                />
+              </label>
+            )}
+            <div className="form-checkbox-container">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={hasSizes}
+                  onChange={(event) => setHasSizes(event.target.checked)}
+                />
+                Este producto tiene tallas
+              </label>
+            </div>
+            {hasSizes && (
+              <div className="sizes-admin-section">
+                <p className="sizes-admin-label">Configura el precio por talla</p>
+                <div className="sizes-admin-grid">
+                  {SIZE_OPTIONS.map((sz) => (
+                    <div key={sz} className={`size-admin-row ${activeSizes[sz] ? "active" : ""}`}>
+                      <label className="size-toggle">
+                        <input
+                          type="checkbox"
+                          checked={activeSizes[sz]}
+                          onChange={(e) =>
+                            setActiveSizes((prev) => ({ ...prev, [sz]: e.target.checked }))
+                          }
+                        />
+                        <span className="size-name">{sz}</span>
+                      </label>
+                      {activeSizes[sz] && (
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="Precio"
+                          className="size-price-input"
+                          value={sizePrices[sz]}
+                          onChange={(e) =>
+                            setSizePrices((prev) => ({ ...prev, [sz]: e.target.value }))
+                          }
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {error && <p className="admin-error">{error}</p>}
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={saving || uploading}
+            >
+              {saving ? "Guardando..." : uploading ? "Subiendo imágenes..." : (editingProduct ? "Guardar cambios →" : "Guardar producto →")}
             </button>
           </form>
         </div>
@@ -854,6 +967,85 @@ function DetailImageSlider({ product }: { product: Product }) {
   );
 }
 
+function DetailModal({
+  selected,
+  onClose,
+  addToBag,
+}: {
+  selected: Product;
+  onClose: () => void;
+  addToBag: (product: Product, selectedSize?: string) => void;
+}) {
+  const hasSizes = selected.sizes && Object.keys(selected.sizes).length > 0;
+  const [chosenSize, setChosenSize] = useState<string | null>(null);
+
+  const displayPrice = chosenSize && selected.sizes && selected.sizes[chosenSize]
+    ? selected.sizes[chosenSize]
+    : selected.price;
+
+  const availableSizes = hasSizes
+    ? SIZE_OPTIONS.filter((sz) => selected.sizes && sz in selected.sizes)
+    : [];
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <section
+        className="detail-modal"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button className="close-modal" onClick={onClose}>
+          ×
+        </button>
+        <DetailImageSlider product={selected} />
+        <div>
+          <p className="eyebrow">
+            {selected.category}
+            {isDiscountValid(selected) && (
+              <span className="discount-badge-modal">Descuento</span>
+            )}
+          </p>
+          <h2>{selected.name}</h2>
+          <strong>{formatPrice(displayPrice)}</strong>
+          <p>{selected.description}</p>
+          <p className="detail-stock">
+            ● {selected.stock} piezas disponibles
+          </p>
+          {hasSizes && (
+            <div className="size-selector">
+              <p className="size-selector-label">Selecciona tu talla</p>
+              <div className="size-selector-options">
+                {availableSizes.map((sz) => (
+                  <button
+                    key={sz}
+                    type="button"
+                    className={`size-option ${chosenSize === sz ? "selected" : ""}`}
+                    onClick={() => setChosenSize(sz)}
+                  >
+                    {sz}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <button
+            className="primary-button"
+            disabled={hasSizes && !chosenSize}
+            onClick={() => {
+              addToBag(selected, chosenSize ?? undefined);
+              onClose();
+            }}
+          >
+            {hasSizes && !chosenSize
+              ? "Selecciona una talla"
+              : "Añadir a mi bolsa"}{" "}
+            <span>+</span>
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function App() {
   const config = useAppConfig();
   const [view, setView] = useState<View>("inicio");
@@ -873,19 +1065,26 @@ function App() {
     }
   });
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-  const addToBag = (product: Product) => {
+  const addToBag = (product: Product, selectedSize?: string) => {
+    const sizePrice = selectedSize && product.sizes && product.sizes[selectedSize]
+      ? product.sizes[selectedSize]
+      : product.price;
     setCartItems((items) => {
-      const existing = items.find((item) => item.id === product.id);
+      // Unique key: product id + size
+      const existing = items.find(
+        (item) => item.id === product.id && item.selectedSize === selectedSize
+      );
       if (existing) {
         return items.map((item) =>
-          item.id === product.id
+          item.id === product.id && item.selectedSize === selectedSize
             ? { ...item, quantity: item.quantity + 1 }
             : item,
         );
       }
-      return [...items, { ...product, quantity: 1 }];
+      return [...items, { ...product, price: sizePrice, quantity: 1, selectedSize }];
     });
-    setNotice(`${product.name} fue agregado a tu bolsa`);
+    const sizeLabel = selectedSize ? ` (${selectedSize})` : "";
+    setNotice(`${product.name}${sizeLabel} fue agregado a tu bolsa`);
     window.setTimeout(() => setNotice(""), 2800);
   };
 
@@ -1024,40 +1223,11 @@ function App() {
       )}
       {notice && <div className="toast">✓ {notice}</div>}
       {selected && (
-        <div className="modal-backdrop" onMouseDown={() => setSelected(null)}>
-          <section
-            className="detail-modal"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <button className="close-modal" onClick={() => setSelected(null)}>
-              ×
-            </button>
-            <DetailImageSlider product={selected} />
-            <div>
-              <p className="eyebrow">
-                {selected.category}
-                {selected.en_descuento && (
-                  <span className="discount-badge-modal">Descuento</span>
-                )}
-              </p>
-              <h2>{selected.name}</h2>
-              <strong>{formatPrice(selected.price)}</strong>
-              <p>{selected.description}</p>
-              <p className="detail-stock">
-                ● {selected.stock} piezas disponibles
-              </p>
-              <button
-                className="primary-button"
-                onClick={() => {
-                  addToBag(selected);
-                  setSelected(null);
-                }}
-              >
-                Añadir a mi bolsa <span>+</span>
-              </button>
-            </div>
-          </section>
-        </div>
+        <DetailModal
+          selected={selected}
+          onClose={() => setSelected(null)}
+          addToBag={addToBag}
+        />
       )}
     </>
   );

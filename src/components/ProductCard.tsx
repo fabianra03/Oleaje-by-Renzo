@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Product } from "../types";
-import { formatPrice } from "../data/products";
+import { formatPrice, isDiscountValid } from "../data/products";
 
 interface Props {
   product: Product;
@@ -8,7 +8,7 @@ interface Props {
   onBuy: (product: Product) => void;
 }
 
-export function ProductCard({ product, onDetail, onBuy }: Props) {
+export function ProductCard({ product, onDetail }: Props) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const images = product.images && product.images.length > 0 ? product.images : [product.image];
 
@@ -72,7 +72,7 @@ export function ProductCard({ product, onDetail, onBuy }: Props) {
           </>
         )}
         <span className="category-tag">{product.category}</span>
-        {product.en_descuento && (
+        {isDiscountValid(product) && (
           <span className="discount-tag-card">Descuento</span>
         )}
       </div>
@@ -80,13 +80,32 @@ export function ProductCard({ product, onDetail, onBuy }: Props) {
         <h3>{product.name}</h3>
         <p>{product.description}</p>
         <div className="product-bottom">
-          <strong>{formatPrice(product.price)}</strong>
+          <strong>{(() => {
+            if (product.sizes && Object.keys(product.sizes).length > 0) {
+              const prices = Object.values(product.sizes);
+              const min = Math.min(...prices);
+              const max = Math.max(...prices);
+              if (min === max) return formatPrice(min);
+              return `${formatPrice(min)} – ${formatPrice(max)}`;
+            }
+            return formatPrice(product.price);
+          })()}</strong>
           <button className="text-button" onClick={() => onDetail(product)}>
             Ver detalle <b>→</b>
           </button>
         </div>
-        <button className="buy-button" onClick={() => onBuy(product)}>
-          Añadir a mi bolsa <span>+</span>
+        {product.sizes && Object.keys(product.sizes).length > 0 && (
+          <div className="product-sizes-preview">
+            {Object.keys(product.sizes).map((sz) => (
+              <span key={sz} className="size-pill-preview">{sz}</span>
+            ))}
+          </div>
+        )}
+        <button className="buy-button" onClick={() => onDetail(product)}>
+          {product.sizes && Object.keys(product.sizes).length > 0
+            ? <>Seleccionar talla <span>→</span></>
+            : <>Añadir a mi bolsa <span>+</span></>
+          }
         </button>
       </div>
     </article>

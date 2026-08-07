@@ -2724,3 +2724,174 @@ select {
   font-size: 15px;
   letter-spacing: 0.05em;
 }
+
+/* =============================================
+   SIZES — Detail Modal Selector
+   ============================================= */
+
+.size-selector {
+  margin: 16px 0;
+}
+
+.size-selector-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.size-selector-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.size-option {
+  min-width: 44px;
+  height: 40px;
+  padding: 0 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.size-option:hover {
+  border-color: var(--ink);
+  background: rgba(23, 52, 76, 0.04);
+}
+
+.size-option.selected {
+  background: var(--deep);
+  color: #fff;
+  border-color: var(--deep);
+}
+
+.primary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* =============================================
+   SIZES — Admin Form Section
+   ============================================= */
+
+.sizes-admin-section {
+  margin-top: 8px;
+  padding: 16px;
+  background: rgba(23, 52, 76, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.sizes-admin-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.sizes-admin-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.size-admin-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.size-admin-row.active {
+  background: #fff;
+  border-color: var(--line);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.product-form label.size-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  width: auto;
+  min-width: 60px;
+}
+
+.size-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--deep);
+}
+
+.size-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+}
+
+.product-form .size-price-input {
+  flex: 1;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--ink);
+  background: #fff;
+  transition: border-color 0.2s ease;
+  width: auto;
+  min-width: 100px;
+}
+
+.product-form .size-price-input:focus {
+  outline: none;
+  border-color: var(--deep);
+}
+
+.product-form .size-price-input::placeholder {
+  color: #aaa;
+}
+
+/* =============================================
+   SIZES — ProductCard Preview Pills
+   ============================================= */
+
+.product-sizes-preview {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin: 6px 0 4px;
+}
+
+.size-pill-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(23, 52, 76, 0.06);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}

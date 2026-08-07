@@ -11,6 +11,8 @@ try:
     cur.execute("ALTER TABLE productos ADD COLUMN IF NOT EXISTS image TEXT;")
     cur.execute("ALTER TABLE productos ADD COLUMN IF NOT EXISTS en_descuento BOOLEAN DEFAULT FALSE;")
     cur.execute("ALTER TABLE productos ADD COLUMN IF NOT EXISTS stock INTEGER DEFAULT 10;")
+    cur.execute("ALTER TABLE productos ADD COLUMN IF NOT EXISTS tallas TEXT;")
+    cur.execute("ALTER TABLE productos ADD COLUMN IF NOT EXISTS descuento_fin TIMESTAMP;")
     conn.commit()
     print("Migration successful")
 except Exception as e:

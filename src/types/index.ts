@@ -11,6 +11,8 @@ export interface Product {
   featured?: boolean
   stock: number
   en_descuento: boolean
+  descuento_fin?: string | null
+  sizes?: Record<string, number> | null
 }
 
 export type View = 'inicio' | 'productos' | 'carrito' | 'contacto' | 'admin'
