@@ -19,6 +19,10 @@ import requests as http_requests
 # pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, session
+from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_wtf.csrf import CSRFProtect, generate_csrf
 from pathlib import Path
 # pyrefly: ignore [missing-import]
 from psycopg import sql
@@ -29,34 +33,8 @@ load_dotenv()
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # ---------------------------------------------------------------------------
-# Rate limiting — en memoria, por IP. Reinicia al reiniciar el proceso.
-# Para producción con múltiples workers usa Redis o similar.
+# Rate limiting - ahora usando Flask-Limiter
 # ---------------------------------------------------------------------------
-_login_attempts: dict[str, list[float]] = {}
-_attempts_lock = threading.Lock()
-
-LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
-LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "300"))  # 5 minutos
-
-
-def _check_rate_limit(ip: str) -> bool:
-    """Devuelve True si la IP ha superado el límite de intentos."""
-    now = time.monotonic()
-    cutoff = now - LOGIN_WINDOW_SECONDS
-    with _attempts_lock:
-        attempts = [t for t in _login_attempts.get(ip, []) if t > cutoff]
-        if len(attempts) >= LOGIN_MAX_ATTEMPTS:
-            _login_attempts[ip] = attempts
-            return True
-        attempts.append(now)
-        _login_attempts[ip] = attempts
-        return False
-
-
-def _clear_rate_limit(ip: str) -> None:
-    """Elimina el historial de intentos tras un login exitoso."""
-    with _attempts_lock:
-        _login_attempts.pop(ip, None)
 
 
 # ---------------------------------------------------------------------------
@@ -222,12 +200,26 @@ def serialize_product(row: tuple[Any, ...]) -> dict[str, Any]:
 
 def create_app() -> Flask:
     app = Flask(__name__)
+    
+    is_secure = os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true"
     app.config.update(
         SECRET_KEY=setting("FLASK_SECRET_KEY"),
         PERMANENT_SESSION_LIFETIME=timedelta(hours=int(os.getenv("SESSION_HOURS", "8"))),
         SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE="Lax",
-        SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true",
+        SESSION_COOKIE_SAMESITE="None" if is_secure else "Lax",
+        SESSION_COOKIE_SECURE=is_secure,
+    )
+    
+    frontend_url = os.getenv("FRONTEND_URL", "https://oleaje-by-renzo.vercel.app")
+    CORS(app, supports_credentials=True, origins=[frontend_url, "http://localhost:5173", "http://127.0.0.1:5173"])
+    
+    csrf = CSRFProtect(app)
+    
+    limiter = Limiter(
+        get_remote_address,
+        app=app,
+        default_limits=["200 per day", "50 per hour"],
+        storage_uri="memory://"
     )
 
     UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
@@ -258,6 +250,10 @@ def create_app() -> Flask:
     # -----------------------------------------------------------------------
     # Endpoints
     # -----------------------------------------------------------------------
+
+    @app.get("/api/csrf-token")
+    def csrf_token():
+        return jsonify({"csrfToken": generate_csrf()})
 
     @app.get("/api/health")
     def health() -> tuple[dict[str, str], int]:
@@ -373,12 +369,8 @@ def create_app() -> Flask:
         return jsonify({"authenticated": True, "user": user}), 200
 
     @app.post("/api/auth/login")
+    @limiter.limit("5 per minute")
     def login() -> tuple[Any, int]:
-        client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
-
-        if _check_rate_limit(client_ip):
-            return jsonify({"message": "Demasiados intentos. Intenta de nuevo en unos minutos."}), 429
-
         payload = request.get_json(silent=True) or {}
         username = str(payload.get("username") or payload.get("email") or "").strip()
         password = str(payload.get("password", ""))
@@ -406,7 +398,6 @@ def create_app() -> Flask:
         if not row or not verify_password(password, str(row[1])):
             return jsonify({"message": "Usuario o contraseña incorrectos."}), 401
 
-        _clear_rate_limit(client_ip)
         session.clear()
         session.permanent = True
         session["admin_user"] = {

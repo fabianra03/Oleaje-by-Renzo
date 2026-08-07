@@ -26,10 +26,36 @@ const DEFAULT_CONFIG: AppConfig = {
   city: "Barranquilla, Colombia",
 };
 
+let csrfToken: string | null = null;
+async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const isApi = typeof input === "string" && input.startsWith("/api");
+  const options = { ...init, credentials: "include" as RequestCredentials };
+  
+  if (isApi && options.method && ["POST", "PATCH", "DELETE", "PUT"].includes(options.method.toUpperCase())) {
+    if (!csrfToken) {
+      try {
+        const res = await fetch("/api/csrf-token", { credentials: "include" });
+        if (res.ok) {
+          const data = await res.json();
+          csrfToken = data.csrfToken;
+        }
+      } catch (e) {
+        console.error("Failed to fetch CSRF token");
+      }
+    }
+    options.headers = {
+      ...options.headers,
+      "X-CSRFToken": csrfToken || "",
+    };
+  }
+  
+  return fetch(input, options);
+}
+
 function useAppConfig(): AppConfig {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   useEffect(() => {
-    fetch("/api/config")
+    apiFetch("/api/config")
       .then((res) => (res.ok ? res.json() : null))
       .then((data: AppConfig | null) => {
         if (data) setConfig(data);
@@ -56,9 +82,8 @@ function AdminLogin({
     setError("");
     setLoading(true);
     try {
-      const response = await fetch("/api/auth/login", {
+      const response = await apiFetch("/api/auth/login", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
@@ -510,9 +535,8 @@ function Admin({
       return;
     }
     try {
-      const response = await fetch(`/api/products/${id}`, {
+      const response = await apiFetch(`/api/products/${id}`, {
         method: "DELETE",
-        credentials: "include",
       });
       if (response.ok) {
         onProductDeleted(id);
@@ -528,9 +552,8 @@ function Admin({
   const toggleDiscount = async (product: Product) => {
     const nextStatus = !product.en_descuento;
     try {
-      const response = await fetch(`/api/products/${product.id}`, {
+      const response = await apiFetch(`/api/products/${product.id}`, {
         method: "PATCH",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ en_descuento: nextStatus }),
       });
@@ -553,9 +576,8 @@ function Admin({
     try {
       const url = editingProduct ? `/api/products/${editingProduct.id}` : "/api/products";
       const method = editingProduct ? "PATCH" : "POST";
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
@@ -754,9 +776,8 @@ function Admin({
                       const formData = new FormData();
                       formData.append("file", file);
                       try {
-                        const res = await fetch("/api/upload", {
+                        const res = await apiFetch("/api/upload", {
                           method: "POST",
-                          credentials: "include",
                           body: formData,
                         });
                         if (res.ok) {
@@ -1112,7 +1133,7 @@ function App() {
   const loadProducts = async () => {
     setCatalogLoading(true);
     try {
-      const response = await fetch("/api/products");
+      const response = await apiFetch("/api/products");
       if (response.ok) {
         const data = (await response.json()) as { products?: Product[] };
         setCatalogProducts(data.products ?? []);
@@ -1131,7 +1152,7 @@ function App() {
   useEffect(() => {
     const restoreSession = async () => {
       try {
-        const response = await fetch("/api/auth/me", { credentials: "include" });
+        const response = await apiFetch("/api/auth/me");
         if (response.ok) {
           const data = (await response.json()) as { user?: AdminUser };
           setAdminUser(data.user ?? null);
@@ -1150,7 +1171,7 @@ function App() {
 
   const logout = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      await apiFetch("/api/auth/logout", { method: "POST" });
     } finally {
       setAdminUser(null);
       setView("inicio");
