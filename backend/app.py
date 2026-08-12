@@ -369,6 +369,7 @@ def create_app() -> Flask:
         return jsonify({"authenticated": True, "user": user}), 200
 
     @app.post("/api/auth/login")
+    @csrf.exempt
     @limiter.limit("5 per minute")
     def login() -> tuple[Any, int]:
         payload = request.get_json(silent=True) or {}
