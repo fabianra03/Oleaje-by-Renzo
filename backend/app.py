@@ -260,6 +260,7 @@ def create_app() -> Flask:
         return {"status": "ok"}, 200
 
     @app.get("/api/config")
+    @csrf.exempt
     def public_config() -> tuple[Any, int]:
         """Expone configuración pública (sin secretos) para el frontend."""
         resp = jsonify({
@@ -272,6 +273,7 @@ def create_app() -> Flask:
         return resp, 200
 
     @app.post("/api/upload")
+    @csrf.exempt
     def upload_file() -> tuple[Any, int]:
         denied = require_admin()
         if denied:
@@ -322,6 +324,7 @@ def create_app() -> Flask:
         return jsonify({"url": public_url}), 200
 
     @app.post("/api/upload/debug")
+    @csrf.exempt
     def upload_debug() -> tuple[Any, int]:
         """Diagnóstico temporal — muestra el error exacto de Supabase Storage."""
         denied = require_admin()
@@ -357,11 +360,13 @@ def create_app() -> Flask:
         return jsonify(info), 200
 
     @app.get("/uploads/<filename>")
+    @csrf.exempt
     def serve_upload_legacy(filename: str) -> tuple[Any, int]:
         """Ruta legacy — en producción las imágenes se sirven desde Supabase Storage."""
         return jsonify({"message": "Las imágenes ahora se sirven desde Supabase Storage."}), 410
 
     @app.get("/api/auth/me")
+    @csrf.exempt
     def current_user() -> tuple[Any, int]:
         user = session.get("admin_user")
         if not user:
@@ -409,15 +414,18 @@ def create_app() -> Flask:
         return jsonify({"authenticated": True, "user": session["admin_user"]}), 200
 
     @app.post("/api/auth/logout")
+    @csrf.exempt
     def logout() -> tuple[dict[str, bool], int]:
         session.clear()
         return {"authenticated": False}, 200
 
     @app.post("/api/admin/close-connection")
+    @csrf.exempt
     def close_connection() -> tuple[dict[str, str], int]:
         return {"status": "ok"}, 200
 
     @app.get("/api/products")
+    @csrf.exempt
     def list_products() -> tuple[Any, int]:
         query = sql.SQL(
             "SELECT {codigo}, {name}, {valor}, {category}, {image}, {en_descuento}, {stock}, {tallas}, {descuento_fin} "
@@ -448,6 +456,7 @@ def create_app() -> Flask:
         return resp, 200
 
     @app.post("/api/products")
+    @csrf.exempt
     def create_product() -> tuple[Any, int]:
         denied = require_admin()
         if denied:
@@ -557,6 +566,7 @@ def create_app() -> Flask:
         return jsonify({"message": "Producto eliminado exitosamente."}), 200
 
     @app.patch("/api/products/<int:codigo>")
+    @csrf.exempt
     def patch_product(codigo: int) -> tuple[Any, int]:
         denied = require_admin()
         if denied:
