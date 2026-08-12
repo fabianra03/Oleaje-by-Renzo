@@ -467,12 +467,14 @@ h1 em {
 .product-image img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
+  background: #f6f2ee;
   transition: transform 0.55s;
 }
 
 .product-card:hover .product-image img {
-  transform: scale(1.06);
+  transform: scale(1.02);
 }
 
 .product-image .category-tag {
