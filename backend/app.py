@@ -200,8 +200,6 @@ def serialize_product(row: tuple[Any, ...]) -> dict[str, Any]:
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    
-    app.config["WTF_CSRF_ENABLED"] = False
 
     is_secure = os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true"
     app.config.update(
@@ -216,7 +214,6 @@ def create_app() -> Flask:
     CORS(app, supports_credentials=True, origins=[frontend_url, "http://localhost:5173", "http://127.0.0.1:5173"])
     
     csrf = CSRFProtect(app)
-    csrf.exempt(app)
     
     limiter = Limiter(
         get_remote_address,
