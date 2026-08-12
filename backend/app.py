@@ -535,6 +535,7 @@ def create_app() -> Flask:
         return jsonify({"product": product_data}), 201
 
     @app.delete("/api/products/<int:codigo>")
+    @csrf.exempt
     def delete_product(codigo: int) -> tuple[Any, int]:
         denied = require_admin()
         if denied:
