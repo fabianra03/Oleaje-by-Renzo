@@ -201,6 +201,8 @@ def serialize_product(row: tuple[Any, ...]) -> dict[str, Any]:
 def create_app() -> Flask:
     app = Flask(__name__)
     
+    app.config["WTF_CSRF_ENABLED"] = False
+
     is_secure = os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true"
     app.config.update(
         SECRET_KEY=setting("FLASK_SECRET_KEY"),
