@@ -214,6 +214,7 @@ def create_app() -> Flask:
     CORS(app, supports_credentials=True, origins=[frontend_url, "http://localhost:5173", "http://127.0.0.1:5173"])
     
     csrf = CSRFProtect(app)
+    csrf.exempt(app)
     
     limiter = Limiter(
         get_remote_address,
